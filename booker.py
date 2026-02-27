@@ -41,12 +41,11 @@ TIME_WINDOWS = {
 
 @dataclass
 class ClassCard:
-    name:  str
-    day:   str   # lowercase weekday
-    time:  str   # "HH:MM" 24h
-    hour:  int
-    element: object  # Playwright Locator — not printed
-
+    name:        str
+    day:         str   # lowercase weekday
+    time:        str   # start time token e.g. "6:00"
+    hour:        int   # 24h hour integer
+    booking_url: str   # momence.com/s/... direct booking link
 
     def display(self) -> str:
         return f"{self.name}  |  {self.day.capitalize()}  {self.time}"
@@ -116,6 +115,13 @@ def _score_match(card: ClassCard, intent: dict) -> int:
             if kw in card.name.lower():
                 score += 2
                 break
+
+    # Name keyword soft score — helps match classes without a level
+    # e.g. "on1", "playground", "ignite" distinguish specific classes
+    name_lower = card.name.lower()
+    for kw in intent.get("name_keywords", []):
+        if kw in name_lower:
+            score += 1
 
     return score
 
@@ -287,11 +293,12 @@ def run_schedule(queries: list[str], email: str, password: str, *, headless: boo
 # Scraping
 # ---------------------------------------------------------------------------
 
-def _scrape_classes(page: Page) -> list[ClassCard]:
-    """Extract class cards from the Momence widget on lec.dance/timetable."""
-    cards: list[ClassCard] = []
-
-    # Only grab top-level item elements (those that contain a title child).
+def _scrape_raw(page: Page) -> list[dict]:
+    """
+    Browser I/O only: pull raw text fields + booking URL from each class card.
+    Returns plain dicts — no live Playwright objects.
+    """
+    raw: list[dict] = []
     card_locators = page.locator(_SEL_CARD).filter(
         has=page.locator(_SEL_TITLE)
     ).all()
@@ -300,38 +307,57 @@ def _scrape_classes(page: Page) -> list[ClassCard]:
         name = _text(el, _SEL_TITLE)
         if not name:
             continue
+        try:
+            booking_url = el.locator("a").filter(
+                has_text=re.compile(r"book now|book", re.I)
+            ).first.get_attribute("href", timeout=2000) or ""
+        except Exception:
+            booking_url = ""
+        raw.append({
+            "name":        name,
+            "date_str":    _text(el, _SEL_DATE),
+            "dur_str":     _text(el, _SEL_DUR),
+            "booking_url": booking_url,
+        })
+    return raw
 
-        # Date field: "Saturday, February 28, 2026"
-        date_str = _text(el, _SEL_DATE)
+
+def _build_cards(raw: list[dict]) -> list[ClassCard]:
+    """
+    Pure function: convert raw scraped dicts into ClassCard objects.
+    No browser, no I/O — fully unit-testable.
+    """
+    cards: list[ClassCard] = []
+    for r in raw:
         day = ""
         for d in ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]:
-            if d in date_str.lower():
+            if d in r["date_str"].lower():
                 day = d
                 break
 
-        # Duration field: "10:00 AM\n - \n11:00 AM\n60 min"
-        dur_str = _text(el, _SEL_DUR)
-        # First token with a time pattern is the start time
+        dur_str = r["dur_str"]
         time_str = ""
         hour = -1
         for token in dur_str.replace("\n", " ").split():
-            candidate = token.strip()
-            if re.search(r"\d{1,2}:\d{2}", candidate):
-                # Grab "10:00 AM" — may span two tokens ("10:00" + "AM")
-                time_str = candidate
+            if re.search(r"\d{1,2}:\d{2}", token):
+                time_str = token
                 hour = _parse_hour(dur_str)
                 break
 
-        if name and day and hour >= 0:
+        if r["name"] and day and hour >= 0 and r["booking_url"]:
             cards.append(ClassCard(
-                name=name,
+                name=r["name"],
                 day=day,
                 time=time_str,
                 hour=hour,
-                element=el,
+                booking_url=r["booking_url"],
             ))
-
     return cards
+
+
+def _scrape_classes(page: Page) -> list[ClassCard]:
+    """Convenience wrapper: scrape raw data then build cards."""
+    return _build_cards(_scrape_raw(page))
 
 
 # ---------------------------------------------------------------------------
@@ -368,20 +394,8 @@ def _login_momence(page: Page, email: str, password: str) -> bool:
 
 def _book_class(page: Page, card: ClassCard) -> bool:
     """Navigate to the Momence booking page and confirm the booking. Returns True on success."""
-    try:
-        link = card.element.locator("a").filter(
-            has_text=re.compile(r"book now|book", re.I)
-        ).first
-        booking_url = link.get_attribute("href", timeout=5000)
-    except Exception:
-        booking_url = None
-
-    if not booking_url:
-        print("\n✗ Could not find booking URL on the card.")
-        return False
-
     print(f"\nNavigating to booking page...")
-    page.goto(booking_url, wait_until="domcontentloaded", timeout=30_000)
+    page.goto(card.booking_url, wait_until="domcontentloaded", timeout=30_000)
     page.wait_for_timeout(3000)
 
     _already_booked = re.compile(r"already (booked|registered|enrolled|signed up)", re.I)

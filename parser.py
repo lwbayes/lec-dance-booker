@@ -26,6 +26,13 @@ TIME_KEYWORDS = {
     "evening":   ["evening", "night", "pm"],
 }
 
+# Words stripped before computing name_keywords
+_STOP_WORDS = {
+    "book", "a", "the", "on", "at", "for", "class", "classes",
+    "my", "in", "and", "or", "with", "to", "today", "tomorrow",
+    "evening", "morning", "afternoon", "night", "am", "pm",
+}
+
 
 def _resolve_day(text: str) -> str | None:
     """Return a lowercase weekday name, or None if not found."""
@@ -85,11 +92,28 @@ def parse(text: str) -> dict:
         if time_of_day != "any":
             break
 
+    # --- name keywords: words not consumed by any recognised field ---
+    consumed = set()
+    if class_type != "any":
+        consumed.update(class_type.split())
+    if level != "any":
+        for kw in LEVEL_KEYWORDS[level]:
+            consumed.update(kw.split())
+    if day:
+        consumed.add(day)
+    consumed.update(_STOP_WORDS)
+
+    name_keywords = [
+        w for w in re.split(r"\W+", lowered)
+        if w and w not in consumed
+    ]
+
     return {
-        "class_type": class_type,
-        "level":      level,
-        "day":        day,
-        "time":       time_of_day,
+        "class_type":    class_type,
+        "level":         level,
+        "day":           day,
+        "time":          time_of_day,
+        "name_keywords": name_keywords,
     }
 
 
