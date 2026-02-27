@@ -1,0 +1,31 @@
+# Weekly class schedule
+# Each entry is a natural language query passed to the booker.
+# Run with: python main.py --schedule          (books today's classes)
+#           python main.py --schedule monday   (books a specific day)
+#
+# Available classes (as of Feb 2026):
+#   Monday:    Salsa Partnerwork - Improvers (6pm), Salsa On1 Partnerwork (7pm),
+#              Mambo Shines Fundamentals (7pm), Salsa Playground (8pm)
+#   Tuesday:   Men's/Ladies' Salsa Training Improvers+ (6pm), Salsa Partnerwork Inter/Adv (7pm)
+#   Wednesday: Salsa Shines & Partnerwork Foundations (6pm), Salsa Shines & Partnerwork Improvers (6pm)
+#   Thursday:  Bachata Shines (6pm)
+#   Saturday:  Men's/Ladies' Salsa Foundations (10am)
+
+monday:
+  - "salsa improvers monday evening"
+  - "salsa on1 partnerwork"
+  - "salsa playground"
+
+tuesday: 
+  - "mens salsa"
+  - "salsa Advanced"
+  - "salsa advanced shine
+wednesday:
+  - "salsa improver"
+  - "salsa flow"
+  - "salsa social dancing concepts"
+
+thursday: 
+  - "LEC Ignite Company"
+
+

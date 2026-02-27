@@ -1,0 +1,12 @@
+# Credentials — never commit
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+
+# Playwright debug artefacts
+*.png
+*_dump.html
