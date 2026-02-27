@@ -7,6 +7,9 @@ __pycache__/
 *.pyo
 .venv/
 
+# Test cache
+.pytest_cache/
+
 # Playwright debug artefacts
 *.png
 *_dump.html
