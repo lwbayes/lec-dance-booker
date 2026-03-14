@@ -17,7 +17,7 @@ from datetime import date
 
 from playwright.sync_api import sync_playwright, Page, Locator, TimeoutError as PWTimeout
 
-import parser as intent_parser
+import intent_parser
 
 TIMETABLE_URL  = "https://www.lec.dance/timetable"
 MOMENCE_LOGIN  = "https://momence.com/login"
@@ -140,7 +140,12 @@ def run(intent: dict, email: str, password: str, *, yes: bool = False, headless:
         # ------------------------------------------------------------------
         # Step 1: Log in to Momence first
         # ------------------------------------------------------------------
-        if not _login_momence(page, email, password):
+        for attempt in range(3):
+            if _login_momence(page, email, password):
+                break
+            if attempt < 2:
+                print(f"  Retrying login ({attempt + 2}/3)...")
+        else:
             browser.close()
             return False
 
@@ -151,10 +156,18 @@ def run(intent: dict, email: str, password: str, *, yes: bool = False, headless:
         page.goto(TIMETABLE_URL, wait_until="domcontentloaded", timeout=30_000)
 
         print("  Waiting for class schedule to load...")
-        try:
-            page.wait_for_selector(_SEL_TITLE, timeout=WIDGET_TIMEOUT)
-        except PWTimeout:
-            print("\n✗ Timetable did not load in time. The page may have changed.")
+        timetable_loaded = False
+        for attempt in range(3):
+            try:
+                page.wait_for_selector(_SEL_TITLE, timeout=WIDGET_TIMEOUT)
+                timetable_loaded = True
+                break
+            except PWTimeout:
+                if attempt < 2:
+                    print(f"  Timetable not ready, retrying ({attempt + 2}/3)...")
+                    page.goto(TIMETABLE_URL, wait_until="domcontentloaded", timeout=30_000)
+        if not timetable_loaded:
+            print("\n✗ Timetable did not load after 3 attempts.")
             print("  Please inspect the page manually and update the selectors in booker.py.")
             browser.close()
             return False
@@ -163,7 +176,7 @@ def run(intent: dict, email: str, password: str, *, yes: bool = False, headless:
         page.wait_for_timeout(2000)
 
         # ------------------------------------------------------------------
-        # Step 2: Scrape class cards
+        # Step 3: Scrape class cards
         # ------------------------------------------------------------------
         cards = _scrape_classes(page)
 
@@ -229,7 +242,7 @@ def run(intent: dict, email: str, password: str, *, yes: bool = False, headless:
         return ok
 
 
-def run_schedule(queries: list[str], email: str, password: str, *, headless: bool = False) -> dict:
+def run_schedule(queries: list[str], email: str, password: str, *, day: str | None = None, headless: bool = False) -> dict:
     """
     Book multiple classes in a single browser session (one login, one timetable load).
     Returns a dict mapping each query to True (booked/already booked) or False (failed).
@@ -241,17 +254,30 @@ def run_schedule(queries: list[str], email: str, password: str, *, headless: boo
         context = browser.new_context()
         page = context.new_page()
 
-        if not _login_momence(page, email, password):
+        for attempt in range(3):
+            if _login_momence(page, email, password):
+                break
+            if attempt < 2:
+                print(f"  Retrying login ({attempt + 2}/3)...")
+        else:
             browser.close()
             return results
 
         print(f"\nOpening {TIMETABLE_URL} ...")
         page.goto(TIMETABLE_URL, wait_until="domcontentloaded", timeout=30_000)
         print("  Waiting for class schedule to load...")
-        try:
-            page.wait_for_selector(_SEL_TITLE, timeout=WIDGET_TIMEOUT)
-        except PWTimeout:
-            print("\n✗ Timetable did not load in time.")
+        timetable_loaded = False
+        for attempt in range(3):
+            try:
+                page.wait_for_selector(_SEL_TITLE, timeout=WIDGET_TIMEOUT)
+                timetable_loaded = True
+                break
+            except PWTimeout:
+                if attempt < 2:
+                    print(f"  Timetable not ready, retrying ({attempt + 2}/3)...")
+                    page.goto(TIMETABLE_URL, wait_until="domcontentloaded", timeout=30_000)
+        if not timetable_loaded:
+            print("\n✗ Timetable did not load after 3 attempts.")
             browser.close()
             return results
         page.wait_for_timeout(2000)
@@ -263,9 +289,11 @@ def run_schedule(queries: list[str], email: str, password: str, *, headless: boo
             return results
         print(f"  Found {len(cards)} classes.\n")
 
-        for query in queries:
+        for i, query in enumerate(queries):
             print(f"--- {query} ---")
             intent = intent_parser.parse(query)
+            if day and intent["day"] is None:
+                intent["day"] = day
             scored = [(c, _score_match(c, intent)) for c in cards]
             matches = [(c, s) for c, s in scored if s > 0]
             matches.sort(key=lambda x: x[1], reverse=True)
@@ -277,13 +305,6 @@ def run_schedule(queries: list[str], email: str, password: str, *, headless: boo
             chosen, _ = matches[0]
             print(f"  Matched: {chosen.display()}")
             results[query] = _book_class(page, chosen)
-
-            # Return to timetable for the next booking
-            if queries.index(query) < len(queries) - 1:
-                page.goto(TIMETABLE_URL, wait_until="domcontentloaded", timeout=30_000)
-                page.wait_for_selector(_SEL_TITLE, timeout=WIDGET_TIMEOUT)
-                page.wait_for_timeout(2000)
-                cards = _scrape_classes(page)
 
         browser.close()
     return results
@@ -392,15 +413,18 @@ def _login_momence(page: Page, email: str, password: str) -> bool:
 # Booking
 # ---------------------------------------------------------------------------
 
+_ALREADY_BOOKED  = re.compile(r"already (booked|registered|enrolled|signed up)", re.I)
+_SUCCESS_PATTERN = re.compile(r"booking confirmed|you'?re booked|you are booked|see you|success", re.I)
+_FAILURE_PATTERN = re.compile(r"class is full|sold out|no spots|payment required|payment needed", re.I)
+
+
 def _book_class(page: Page, card: ClassCard) -> bool:
     """Navigate to the Momence booking page and confirm the booking. Returns True on success."""
     print(f"\nNavigating to booking page...")
     page.goto(card.booking_url, wait_until="domcontentloaded", timeout=30_000)
     page.wait_for_timeout(3000)
 
-    _already_booked = re.compile(r"already (booked|registered|enrolled|signed up)", re.I)
-
-    if page.locator("body").filter(has_text=_already_booked).count() > 0:
+    if page.locator("body").filter(has_text=_ALREADY_BOOKED).count() > 0:
         print("\n✓ Already booked for this class.")
         return True
 
@@ -414,10 +438,17 @@ def _book_class(page: Page, card: ClassCard) -> bool:
         confirm_btn.click()
         page.wait_for_timeout(4000)
 
-        if page.locator("body").filter(has_text=_already_booked).count() > 0:
+        body = page.locator("body")
+        if body.filter(has_text=_ALREADY_BOOKED).count() > 0:
             print("\n✓ Already booked for this class.")
-        else:
-            print("\n✓ Booking complete!")
+            return True
+        if body.filter(has_text=_SUCCESS_PATTERN).count() > 0:
+            print("\n✓ Booking confirmed!")
+            return True
+        if body.filter(has_text=_FAILURE_PATTERN).count() > 0:
+            print("\n✗ Booking failed — class may be full or payment is required.")
+            return False
+        print("\n⚠  Could not confirm booking status — assuming success.")
         return True
     except PWTimeout:
         print("\n⚠  Could not find a confirm button on the booking page.")

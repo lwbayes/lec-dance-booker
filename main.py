@@ -18,7 +18,7 @@ from datetime import date
 from dotenv import load_dotenv
 import yaml
 
-import parser as intent_parser
+import intent_parser
 import booker
 
 SCHEDULE_FILE = os.path.join(os.path.dirname(__file__), "schedule.yaml")
@@ -95,7 +95,7 @@ def _run_schedule(day: str, email: str, password: str, headless: bool) -> None:
         print(f"  • {q}")
     print()
 
-    results = booker.run_schedule(queries, email, password, headless=headless)
+    results = booker.run_schedule(queries, email, password, day=day, headless=headless)
 
     print("\n--- Results ---")
     all_ok = True

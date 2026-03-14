@@ -1,4 +1,4 @@
-import parser
+import intent_parser as parser
 
 
 def test_parse_full_query():
@@ -47,14 +47,14 @@ def test_parse_no_match_returns_any():
 
 def test_parse_today(monkeypatch):
     from datetime import date
-    monkeypatch.setattr("parser.date", type("date", (), {"today": staticmethod(lambda: date(2026, 3, 2))}))
+    monkeypatch.setattr("intent_parser.date",type("date", (), {"today": staticmethod(lambda: date(2026, 3, 2))}))
     r = parser.parse("salsa today")
     assert r["day"] == "monday"  # March 2 2026 is a Monday
 
 
 def test_parse_tomorrow(monkeypatch):
     from datetime import date
-    monkeypatch.setattr("parser.date", type("date", (), {"today": staticmethod(lambda: date(2026, 3, 2))}))
+    monkeypatch.setattr("intent_parser.date",type("date", (), {"today": staticmethod(lambda: date(2026, 3, 2))}))
     r = parser.parse("salsa tomorrow")
     assert r["day"] == "tuesday"
 
@@ -105,3 +105,23 @@ def test_name_keywords_lec_ignite():
     r = parser.parse("LEC Ignite Company")
     assert "ignite" in r["name_keywords"]
     assert "company" in r["name_keywords"]
+
+
+# ---------------------------------------------------------------------------
+# Day injection
+# ---------------------------------------------------------------------------
+
+def test_day_injection_when_no_day_in_query():
+    intent = parser.parse("mens salsa")
+    day = "tuesday"
+    if day and intent["day"] is None:
+        intent["day"] = day
+    assert intent["day"] == "tuesday"
+
+
+def test_day_injection_does_not_override_explicit_day():
+    intent = parser.parse("salsa advanced shines tuesday evening")
+    day = "monday"
+    if day and intent["day"] is None:
+        intent["day"] = day
+    assert intent["day"] == "tuesday"

@@ -3,7 +3,7 @@ Unit tests for the pure functions in booker.py.
 No browser, no network — runs instantly.
 """
 import pytest
-from booker import _parse_hour, _score_match, _build_cards, ClassCard
+from booker import _parse_hour, _score_match, _build_cards, ClassCard, _ALREADY_BOOKED, _SUCCESS_PATTERN, _FAILURE_PATTERN
 
 
 # ---------------------------------------------------------------------------
@@ -173,3 +173,29 @@ def test_build_cards_multiple():
     assert len(cards) == 2
     assert cards[0].day == "monday"
     assert cards[1].day == "thursday"
+
+
+# ---------------------------------------------------------------------------
+# Booking status regex patterns
+# ---------------------------------------------------------------------------
+
+def test_already_booked_pattern():
+    assert _ALREADY_BOOKED.search("You are already booked for this class")
+    assert _ALREADY_BOOKED.search("You are already registered")
+
+
+def test_success_pattern():
+    assert _SUCCESS_PATTERN.search("Booking confirmed!")
+    assert _SUCCESS_PATTERN.search("You're booked!")
+    assert _SUCCESS_PATTERN.search("See you at the class")
+
+
+def test_failure_pattern():
+    assert _FAILURE_PATTERN.search("This class is full.")
+    assert _FAILURE_PATTERN.search("Sold out")
+    assert _FAILURE_PATTERN.search("Payment required to complete booking")
+
+
+def test_failure_does_not_match_success():
+    assert not _FAILURE_PATTERN.search("Booking confirmed")
+    assert not _FAILURE_PATTERN.search("You're booked!")
